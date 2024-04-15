@@ -145,8 +145,10 @@ def calculate_evaluate_score(resume, position_requirements):
     skill_match_score = skill_match_score / total_skills if total_skills > 0 else 0
 
     education_match_score = 1 if resume['basic_info']['degree'] >= position_requirements['Education'] else 0
-    quality_match_score = 1 if resume['basic_info']['quality'] >= position_requirements['Quality'] else 0
-    
+    if  position_requirements['Quality'] > 0 :
+        quality_match_score = min(1, resume['basic_info']['quality'] / position_requirements['Quality']) 
+    else :
+        quality_match_score = 1
     return {
         'Education': education_match_score,
         'Quality': quality_match_score,
@@ -181,6 +183,23 @@ def plot_skills_histogram(resume, position_requirements):
     ax.legend(["Required Level", "Resume Level"])
 
     return fig
+
+def generate_recommendations(match_scores):
+    recommendations = []
+
+    # 检查教育匹配得分
+    if match_scores['Education'] < 1:
+        recommendations.append("建议考虑提升学历，如报读相关专业的研究生课程或获取专业证书。")
+
+    # 检查素质匹配得分
+    if match_scores['Quality'] < 1:
+        recommendations.append("建议参与更多实践活动以提高个人素质，比如志愿者工作、行业会议或相关培训课程。")
+
+    # 检查技能匹配得分
+    if match_scores['Skills'] < 1:
+        recommendations.append("建议针对职位要求的关键技能进行专门训练和提升，特别是那些你目前匹配程度不高的技能。")
+
+    return recommendations
 
 def app():
     st.title('Capability Evaluation')
@@ -244,14 +263,24 @@ def app():
                     
                     # Assuming a placeholder for resume data structure
                     resume = st.session_state.get('resume_data')
-                    match_scores = calculate_evaluate_score(resume, position_details[0])
+                    match_scores = calculate_evaluate_score(resume, position_details[5])
                     
                     # Visualization
-                    fig1 = plot_radar_chart(match_scores)
-                    st.pyplot(fig1)
+                    col1, col2 = st.columns(2)  # 创建两列
 
-                    fig2 = plot_skills_histogram(resume, position_details[0])
-                    st.pyplot(fig2)
+                    with col1:  # 在第一列中展示第一张图
+                        fig1 = plot_radar_chart(match_scores)
+                        st.pyplot(fig1)
+
+                    with col2:  # 在第二列中展示第二张图
+                        fig2 = plot_skills_histogram(resume, position_details[5])
+                        st.pyplot(fig2)
+                        
+                    recommendations = generate_recommendations(match_scores)
+                    with st.container():  # 创建一个容器放置建议
+                        st.header("提升建议")
+                        for recommendation in recommendations:
+                            st.markdown(f"- {recommendation}")
 
 if __name__ == "__main__":
     app()
