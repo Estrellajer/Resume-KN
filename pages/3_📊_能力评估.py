@@ -5,7 +5,9 @@ import streamlit as st
 from py2neo import Graph
 import pandas as pd
 import matplotlib.pyplot as plt
+import re
 from math import pi
+
 
 level_keywords = {
     "精通": 4,
@@ -35,28 +37,45 @@ qualities_list = [
     "责任心", "上进心", "逻辑思维", "实践经验", "团队精神", "吃苦耐劳", "认真负责", "解决问题", "主动性","积极性", "沟通","语言表达"
 ]
 
-def query_specific_position(position_name):
+def parse_salary(salary):
+    # 提取薪资范围和年薪次数
+    match = re.match(r'(\d+)-(\d+)K·(\d+)薪', salary)
+    if match:
+        low, high, times = map(int, match.groups())
+        return (low + high) / 2 * times
+    else:
+        # 如果没有匹配到年薪次数，假设为12薪
+        match = re.match(r'(\d+)-(\d+)K', salary)
+        if match:
+            low, high = map(int, match.groups())
+            return (low + high) / 2 * 12
+    # 如果都没有匹配到，返回0
+    return 0
+def query_specific_position(company_position_name):
     uri = "bolt://localhost:7687"  # 修改为您的 Neo4j 实例地址
     username = "neo4j"              # 修改为您的用户名
     password = "Lmq141592"          # 修改为您的密码
     graph = Graph(uri, auth=(username, password))
     query = """
-    MATCH (p:Position)-[:EDUCATION]->(e:Education),
-          (p)-[:SALARY]->(s:Salary),
-          (p)-[r:REQUIRES_SKILL]->(sk:Skill),
-          (p)-[:QUALITY]->(q:Quality)
-    WHERE p.name = $position_name
-    RETURN p.name AS Position, s.name AS Salary, collect({skill: sk.name, level: r.level}) AS Skills, e.name AS Education, q.name AS Quality
+    MATCH (cn:Company)-[:HAS]->(cp:CompanyPosition)-[:POSITION]->(p:Position),
+        (cp)-[:SALARY]->(s:Salary),
+        (cp)-[r:REQUIRES_SKILL]->(sk:Skill),
+        (cp)-[:QUALITY]->(q:Quality),
+        (cp)-[:EDUCATION]->(e:Education)
+    WHERE cp.id = $company_position_name
+    RETURN DISTINCT cn.name AS Company, p.name AS Position, cp.id AS CompanyPosition, s.name AS Salary, collect({skill: sk.name, level: r.level}) AS Skills, e.name AS Education, q.name AS Quality
     """
     # 注意：这里使用参数化查询以提高安全性和性能
-    results = graph.run(query, position_name=position_name)
+    results = graph.run(query, company_position_name=company_position_name)
 
     # 将结果转换为字典列表
     results_list = []
     for result in results:
         # 将每个结果项转换为字典
         result_dict = {
+            "Company": result["Company"],
             "Position": result["Position"],
+            "CompanyPosition": result["CompanyPosition"],
             "Salary": result["Salary"],
             "Skills": result["Skills"],
             "Education": result["Education"],
@@ -66,59 +85,66 @@ def query_specific_position(position_name):
 
     return results_list
 
-def get_positions(min_salary, max_salary, pay_times, degree):
+def get_positions(min_salary, max_salary, degree):
     uri = "bolt://localhost:7687"  # 修改为您的 Neo4j 实例地址
     username = "neo4j"              # 修改为您的用户名
     password = "Lmq141592"          # 修改为您的密码
     graph = Graph(uri, auth=(username, password))
-    if pay_times == '12薪':
-        salary_pattern = f"(?i)^{min_salary}-{max_salary}K$"
-    else:
-        salary_pattern = f"(?i)^{min_salary}-{max_salary}K·{pay_times}$"
-    
+
+    min_salary = int(min_salary)
+    max_salary = int(max_salary)
+
     query = """
-    MATCH (p:Position)-[:EDUCATION]->(e:Education),
-          (p)-[:SALARY]->(s:Salary),
-          (p)-[r:REQUIRES_SKILL]->(sk:Skill),
-          (p)-[:QUALITY]->(q:Quality)
-    WHERE s.name =~ $salary_pattern AND e.name = $degree
-    RETURN p.name AS Position, s.name AS Salary, collect({skill: sk.name, level: r.level}) AS Skills, e.name AS Education, q.name AS Quality
+    MATCH (cn:Company)-[:HAS]->(cp:CompanyPosition)-[:POSITION]->(p:Position),
+          (cp)-[sa:SALARY]->(s:Salary),
+          (cp)-[r:REQUIRES_SKILL]->(sk:Skill),
+          (cp)-[:QUALITY]->(q:Quality),
+          (cp)-[:ADDRESS]->(ad:Address),
+          (cp)-[:EDUCATION]->(e:Education)
+    WHERE sa.level >= $min_salary AND sa.level <= $max_salary AND e.name = $degree
+    RETURN cp.id AS CompanyPosition, cn.name AS Company, p.name AS Position, s.name AS Salary, collect({skill: sk.name, level: r.level}) AS Skills, e.name AS Education, q.name AS Quality, ad.name AS Address
     LIMIT 30
     """
-    
-    results = graph.run(query, {'salary_pattern': salary_pattern, 'degree': degree})
+
+    results = graph.run(query, {'min_salary': min_salary, 'max_salary': max_salary, 'degree': degree})
     # 将结果转换为字典列表
     results_list = []
     for result in results:
         # 将每个结果项转换为字典
         result_dict = {
+            "Company": result["Company"],
             "Position": result["Position"],
+            "CompanyPosition": result["CompanyPosition"],
             "Salary": result["Salary"],
             "Skills": result["Skills"],
             "Education": result["Education"],
+            "Address": result["Address"],
             "Quality": result["Quality"]
         }
         results_list.append(result_dict)
 
     return results_list
+    
 
 def convert_records_to_dataframe(records):
     data = []
     for record in records:
         # 初始化记录字典
         record_dict = {
-            "Position": record['_fields'][0],
-            "Salary": record['_fields'][1],
+            "Company": record['Company'],
+            "Position": record['Position'],
+            "CompanyPosition": record['CompanyPosition'],
+            "Salary": record['Salary'],
             "Skills": [],
-            "Education": record['_fields'][3]['low'],  # 假设教育和质量字段是数字类型
-            "Quality": record['_fields'][4]['low']
+            "Education": record['Education'],
+            "Quality": record['Quality']
         }
 
         # 处理技能列表，每个技能是一个包含技能名和水平的字典
-        for skill in record['_fields'][2]:
+        for skill in record['Skills']:
             skill_dict = {
                 "skill": skill['skill'],
-                "level": skill['level']['low']  # 处理可能的数值问题
+                "level": skill['level']
             }
             record_dict["Skills"].append(skill_dict)
         
@@ -201,36 +227,22 @@ def generate_recommendations(match_scores):
 
     return recommendations
 
-def app():
-    st.title('Capability Evaluation')
-    st.write("Capability evaluation details here based on the processed resume data.")
 
-    resume = st.session_state.get('resume_data')
-    # Add an input box in the sidebar
-    position_name = st.sidebar.text_input("Position Name", "Software Engineer")
-
-    # Query the specific position
-    position_requirements = query_specific_position(position_name)
-
-    # Calculate the evaluate score
-    match_scores = calculate_evaluate_score(resume, position_requirements[0])
-
-    # Plot the radar chart
-    fig1 = plot_radar_chart(match_scores)
-    st.pyplot(fig1)
-
-    # Plot the skills histogram
-    fig2 = plot_skills_histogram(resume, position_requirements[0])
-    st.pyplot(fig2)
-
-    # Display the data
-    st.dataframe(position_requirements)
 def app():
     st.title('Job Matching and Capability Evaluation')
-    min_salary = st.selectbox("选择最低薪资（K）", range(1, 101))  # 假设薪资范围1K到100K
-    max_salary = st.selectbox("选择最高薪资（K）", range(1, 101))
-    pay_times_options = ["12薪", "13薪", "14薪", "15薪", "16薪"]
-    pay_times = st.selectbox("选择薪资次数（默认为12薪）", options=pay_times_options, index=0)
+    col1, col2 = st.columns(2)  # 创建两列
+    # 在每一栏中添加选择框
+    min_salary1 = col1.selectbox("选择最低薪资下限（K）", range(1, 101), key='min_salary1')  # 假设薪资范围1K到100K
+    max_salary1 = col1.selectbox("选择最低薪资上限（K）", range(1, 101), key='max_salary1')
+    pay_times_options = ["12薪", "13薪", "14薪", "15薪", "16薪", "17薪", "18薪"]
+    pay_times1 = col1.selectbox("选择薪资次数（默认为12薪）", options=pay_times_options, index=0, key='pay_times1')
+
+    min_salary2 = col2.selectbox("选择最高薪资下限（K）", range(1, 101), key='min_salary2')  # 假设薪资范围1K到100K
+    max_salary2 = col2.selectbox("选择最高薪资上限（K）", range(1, 101), key='max_salary2')
+    pay_times2 = col2.selectbox("选择薪资次数（默认为12薪）", options=pay_times_options, index=0, key='pay_times2')
+    # 计算实际薪资
+    actual_min_salary = parse_salary(f"{min_salary1}-{max_salary1}K·{pay_times1}")
+    actual_max_salary = parse_salary(f"{min_salary2}-{max_salary2}K·{pay_times2}")
     # 用户选择教育水平，返回值是教育水平的名称
     degree_name = st.selectbox("教育要求", list(education_keywords.keys()), index=2)
 
@@ -238,13 +250,14 @@ def app():
     degree_required = education_keywords[degree_name]
 
     if st.button("查询岗位"):
-        if min_salary > max_salary:
+        if min_salary1 > max_salary1:
             st.error("最低薪资不能高于最高薪资！")
         else:
-            result = get_positions(min_salary, max_salary, pay_times, degree_required)
+            result = get_positions(actual_min_salary, actual_max_salary, degree_required)
             if not result:
                 st.write("没有找到符合条件的岗位。")
             else:
+                st.dataframe(result[0])
                 for job in result:
                     job['Skills'] = ', '.join([skill['skill'] for skill in job['Skills']])
                 st.subheader("推荐的岗位")
@@ -252,35 +265,55 @@ def app():
                 st.dataframe(df_jobs)
                 # 提取所有职位名称
                 positions = [job['Position'] for job in result]
-                # Display job positions in a select box
-                selected_position = st.selectbox("Select a Job Position to Evaluate", positions)
+                # Save the result in session state
+                st.session_state['result'] = result
+                st.session_state['positions'] = positions
+    else:
+        # Retrieve the result from session state
+        result = st.session_state.get('result', [])
+        positions = st.session_state.get('positions', [])
 
-                # Retrieve the full details of the selected job position
-                if selected_position:
-                    position_details = query_specific_position(selected_position)
+    # Display job positions in a select box
+    selected_position = st.selectbox("Select a Job Position to Evaluate", positions)
 
-                    st.dataframe(position_details[0])
-                    
-                    # Assuming a placeholder for resume data structure
-                    resume = st.session_state.get('resume_data')
-                    match_scores = calculate_evaluate_score(resume, position_details[5])
-                    
-                    # Visualization
-                    col1, col2 = st.columns(2)  # 创建两列
+    # Retrieve the full details of the selected job position
+    if selected_position:
+        # Find the corresponding CompanyPosition for the selected position
+        company_position_name = next(job['CompanyPosition'] for job in result if job['Position'] == selected_position)
+        position_details = query_specific_position(company_position_name)
+        st.dataframe(position_details)
+        
+        # Assuming a placeholder for resume data structure
+        resume = st.session_state.get('resume_data')
+        match_scores = calculate_evaluate_score(resume, position_details[0])
+        
+        # Visualization
+        col1, col2 = st.columns(2)  # 创建两列
 
-                    with col1:  # 在第一列中展示第一张图
-                        fig1 = plot_radar_chart(match_scores)
-                        st.pyplot(fig1)
+        with col1:  # 在第一列中展示第一张图
+            fig1 = plot_radar_chart(match_scores)
+            st.pyplot(fig1)
 
-                    with col2:  # 在第二列中展示第二张图
-                        fig2 = plot_skills_histogram(resume, position_details[5])
-                        st.pyplot(fig2)
-                        
-                    recommendations = generate_recommendations(match_scores)
-                    with st.container():  # 创建一个容器放置建议
-                        st.header("提升建议")
-                        for recommendation in recommendations:
-                            st.markdown(f"- {recommendation}")
+        with col2:  # 在第二列中展示第二张图
+            fig2 = plot_skills_histogram(resume, position_details[0])
+            st.pyplot(fig2)
+        
+        recommendations = generate_recommendations(match_scores)
+        with st.container():  # 创建一个容器放置建议
+            st.header("提升建议")
+            for recommendation in recommendations:
+                st.markdown(f"- {recommendation}")
 
 if __name__ == "__main__":
-    app()
+    if "username" in st.session_state:
+        user_info = st.session_state.username
+        # 显示主页
+        st.sidebar.success(f"欢迎用户 {user_info}")
+
+    if "authentication_status" in st.session_state and st.session_state["authentication_status"]:
+        st.sidebar.page_link("app.py", label=":red[首页]", icon="🏠")
+        st.sidebar.page_link("pages/1_🏠_简历.py", label=":violet[简历上传]", icon="📑")
+        st.sidebar.page_link("pages/2_🔍_职位推荐.py", label=":blue[岗位推荐]", icon="🔍")
+        st.sidebar.page_link("pages/3_📊_能力评估.py", label=":green[能力评价]", icon="📊")
+        st.sidebar.page_link("pages/4_🗺️_职场趋势.py", label=":orange[就业趋势]", icon="🗺️")
+        app()

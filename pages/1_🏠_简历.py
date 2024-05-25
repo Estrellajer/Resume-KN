@@ -140,5 +140,17 @@ def app():
         st.dataframe(df_resume)
     else:
         st.write("请上传简历文件。")
+
 if __name__ == "__main__":
-    app()
+    if "username" in st.session_state:
+        user_info = st.session_state.username
+        # 显示主页
+        st.sidebar.success(f"欢迎用户 {user_info}")
+
+    if "authentication_status" in st.session_state and st.session_state["authentication_status"]:
+        st.sidebar.page_link("app.py", label=":red[首页]", icon="🏠")
+        st.sidebar.page_link("pages/1_🏠_简历.py", label=":violet[简历上传]", icon="📑")
+        st.sidebar.page_link("pages/2_🔍_职位推荐.py", label=":blue[岗位推荐]", icon="🔍")
+        st.sidebar.page_link("pages/3_📊_能力评估.py", label=":green[能力评价]", icon="📊")
+        st.sidebar.page_link("pages/4_🗺️_职场趋势.py", label=":orange[就业趋势]", icon="🗺️")
+        app()
