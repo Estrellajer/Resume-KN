@@ -10,7 +10,7 @@ from py2neo import Graph
 import pandas as pd
 import matplotlib.pyplot as plt
 from math import pi
-
+import time
 level_keywords = {
     "精通": 4,
     "熟练": 3,
@@ -52,7 +52,7 @@ def parse_resume(fname):
             'ocr_type': 1,                 # 1为高级ocr
             }
     
-    appcode = '9a95262e27054f318e64757acd129825'
+    appcode = '590aa3d7dff14b6f832bb0b4b5edaf07'
     headers = {'Authorization': 'APPCODE ' + appcode,
                'Content-Type': 'application/json; charset=UTF-8',
                }
@@ -128,6 +128,8 @@ def app():
 
             # 将解析结果存储在 session_state 中
             st.session_state.resume_data = resume_data
+
+        # time.sleep(5)
 
         # 展示简历数据
         flat_resume_data = {**resume_data['basic_info'], **resume_data['basic_info']['skills']}

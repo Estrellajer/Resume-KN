@@ -1,7 +1,10 @@
 [client]
 showErrorDetails = false
 showSidebarNavigation = false
-
+[server]
+# 禁止跨源资源共享（CORS）和跨站请求伪造（XSRF）保护
+# enableCORS = false
+enableXsrfProtection = false
 [theme]
 primaryColor = "#F63366"
 backgroundColor = "white"

@@ -73,7 +73,7 @@ def build_query(city, education_levels, limit):
         (cp)-[:QUALITY]->(q:Quality),
         (cp)-[:EDUCATION]->(e:Education)
     WHERE e.name IN $education_levels AND c.name = $city
-    RETURN p.name AS Position, cn.name AS Company, cp.id AS CompanyPosition, s.name AS Salary, collect({skill: sk.name, level: r.level}) AS Skills, e.name AS Education, q.name AS Quality, sa.level AS SalaryLevel
+    RETURN p.name AS Position, cn.name AS Company, cp.id AS CompanyPosition, s.name AS Salary, collect({skill: sk.name, level: r.level}) AS Skills, e.name AS Education, q.name AS Quality, sa.level AS Sum
     ORDER BY sa.level DESC
     LIMIT $limit
     """
@@ -90,7 +90,8 @@ def build_query(city, education_levels, limit):
             "Salary": result["Salary"],
             "Skills": result["Skills"],
             "Education": result["Education"],
-            "Quality": result["Quality"]
+            "Quality": result["Quality"],
+            "Sum": result["Sum"]
         }
         results_list.append(result_dict)
 
@@ -176,7 +177,8 @@ def recommend_positions(resume, city, sort_by='match'):
     else:
         # 按薪酬排序
         positions = [position for position in positions if position['match_score'] >= 0.3]
-        positions.sort(key=lambda x: sum([salary['sum'] for salary in x['Salary']]), reverse=True)
+        # st.write(positions)
+        positions.sort(key=lambda x: x['Sum'], reverse=True)
 
     # 如果岗位数量少于10个，返回所有岗位
     if len(positions) < 10:
@@ -202,8 +204,10 @@ def app():
         recommended_jobs = recommend_positions(resume_data, selected_city, sort_by=sort_by)
         if recommended_jobs:
             for job in recommended_jobs:
+                # st.write(type(job['Salary']))
+                # st.write(job['Skills'])
                 job['Skills'] = ', '.join([skill['skill'] for skill in job['Skills']])
-                job['Salary'] = ', '.join([salary['salary'] for salary in job['Salary']])
+                # job['Salary'] = ', '.join([salary['salary'] for salary in job['Salary']])
             st.subheader("推荐的岗位")
             df_jobs = pd.DataFrame(recommended_jobs)
             st.dataframe(df_jobs)
